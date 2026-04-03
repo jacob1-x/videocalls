@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Call v3.1</title>
+  <title>GeoRun Video Call v3.2</title>
   <style>
     body {
       background: #000;
@@ -28,7 +28,7 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller v3.1</h1>
+  <h1>GeoRun Video Caller v3.2</h1>
 
   <div>
     <video id="local" autoplay muted></video>
@@ -69,62 +69,92 @@
   const localVideo = document.getElementById("local");
   const remoteVideo = document.getElementById("remote");
 
+  // Take first 128 chars of frame as key_bits
   function encodeFrameToKeyBits(b64Frame) {
     return b64Frame.slice(0, 128);
   }
 
-  function reconstructFrameFromKeyBits(key_bits) {
-    const width = 320;
-    const height = 240;
+  // --- HVIDEA-style: key_bits -> draw-call array -----------------
+  function keyBitsToDrawCalls(key_bits, width, height) {
+    const calls = [];
 
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-
-    const imgData = ctx.createImageData(width, height);
-    const data = imgData.data;
-
-    for (let i = 0; i < width * height; i++) {
-      const kb = key_bits.charCodeAt(i % key_bits.length);
+    for (let i = 0; i < key_bits.length; i++) {
+      const kb = key_bits.charCodeAt(i);
 
       const wrapped = kb % 255;
 
       const bin = kb.toString(2);
-      let ones = 0;
-      let zeros = 0;
+      let ones = 0, zeros = 0;
       for (const bit of bin) {
         if (bit === '1') ones++;
         else if (bit === '0') zeros++;
       }
       const sumBits = ones + zeros;
 
-      const v = (wrapped * sumBits) % 256;
+      const x = (wrapped * 3 + sumBits * 7) % width;
+      const y = (wrapped * 5 + sumBits * 11) % height;
 
-      data[i * 4 + 0] = v;
-      data[i * 4 + 1] = v;
-      data[i * 4 + 2] = v;
-      data[i * 4 + 3] = 255;
+      const r = (wrapped * sumBits) % 256;
+      const g = (wrapped * 13) % 256;
+      const b = (sumBits * 17) % 256;
+
+      const cmd = `:x${x}y${y}:${r},${g},${b}:`;
+      calls.push(cmd);
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    return calls;
+  }
+
+  // --- Render draw-call array to canvas --------------------------
+  function renderDrawCalls(calls, width, height) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, width, height);
+
+    for (const cmd of calls) {
+      const match = cmd.match(/:x(\d+)y(\d+):(\d+),(\d+),(\d+):/);
+      if (!match) continue;
+
+      const x = parseInt(match[1]);
+      const y = parseInt(match[2]);
+      const r = parseInt(match[3]);
+      const g = parseInt(match[4]);
+      const b = parseInt(match[5]);
+
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+
+    // debug border so you know it updated
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, width, height);
 
     return canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
+  }
+
+  // --- Final reconstruction: key_bits -> draw calls -> frame -----
+  function reconstructFrameFromKeyBits(key_bits) {
+    const width = 320;
+    const height = 240;
+    const calls = keyBitsToDrawCalls(key_bits, width, height);
+    return renderDrawCalls(calls, width, height);
   }
 
   let keyBitsBuffer = [];
 
   function startSending() {
-    console.log("v3.1: startSending called");
+    console.log("v3.2: startSending called");
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
 
     setInterval(() => {
-      if (!localVideo.videoWidth || !localVideo.videoHeight) {
-        // camera not ready yet
-        return;
-      }
+      if (!localVideo.videoWidth || !localVideo.videoHeight) return;
 
       canvas.width = localVideo.videoWidth;
       canvas.height = localVideo.videoHeight;
@@ -132,7 +162,6 @@
 
       const jpeg = canvas.toDataURL("image/jpeg", 0.4);
       const b64 = jpeg.split(",")[1];
-
       if (!b64) return;
 
       const key_bits = encodeFrameToKeyBits(b64);
@@ -148,7 +177,7 @@
         key_bits_batch: keyBitsBuffer,
         ts: serverTimestamp()
       };
-      console.log("v3.1: sending batch", payload);
+      console.log("v3.2: sending batch", payload);
       set(batchRef, payload);
 
       keyBitsBuffer = [];
@@ -159,19 +188,19 @@
     .then(stream => {
       localVideo.srcObject = stream;
       localVideo.onloadedmetadata = () => {
-        console.log("v3.1: camera ready, starting sender");
+        console.log("v3.2: camera ready, starting sender");
         startSending();
       };
     })
     .catch(err => {
-      console.error("v3.1: getUserMedia failed", err);
+      console.error("v3.2: getUserMedia failed", err);
     });
 
   onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
     const batch = snapshot.val();
     if (!batch || batch.from === userId) return;
 
-    console.log("v3.1: received batch", batch);
+    console.log("v3.2: received batch", batch);
 
     for (const key_bits of batch.key_bits_batch) {
       const reconstructed = reconstructFrameFromKeyBits(key_bits);
