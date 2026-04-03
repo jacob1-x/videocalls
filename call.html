@@ -28,7 +28,7 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller</h1>
+  <h1>GeoRun Video Caller (Batched Cipher)</h1>
 
   <div>
     <video id="local" autoplay muted></video>
@@ -41,23 +41,20 @@
     <button class="btn" onclick="hangup()">Hang Up</button>
   </div>
 
-<!-- FIREBASE + VIDEO CALL LOGIC -->
 <script type="module">
-
-  /* ---------------------------------------------------------
-     1. Firebase Imports (works on GitHub Pages)
-  --------------------------------------------------------- */
+  // -------------------------------------------------------
+  // 1. Firebase imports
+  // -------------------------------------------------------
   import { initializeApp } 
     from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 
-  import { 
-    getDatabase, ref, push, set, onChildAdded, serverTimestamp 
+  import {
+    getDatabase, ref, push, set, onChildAdded, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-
-  /* ---------------------------------------------------------
-     2. Your Firebase Config (COMPLETE + CORRECT)
-  --------------------------------------------------------- */
+  // -------------------------------------------------------
+  // 2. Firebase config (your project)
+  // -------------------------------------------------------
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
     authDomain: "georun-web.firebaseapp.com",
@@ -72,69 +69,99 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-
-  /* ---------------------------------------------------------
-     3. Room + User Setup
-  --------------------------------------------------------- */
-  const roomId = "test-room";   // You can change this or use prompt()
+  // -------------------------------------------------------
+  // 3. Room + user
+  // -------------------------------------------------------
+  const roomId = "test-room"; // later: make dynamic
   const userId = "user-" + Math.random().toString(36).slice(2);
 
   const localVideo = document.getElementById("local");
   const remoteVideo = document.getElementById("remote");
 
+  // -------------------------------------------------------
+  // 4. Cipher helpers (placeholder)
+  // -------------------------------------------------------
+  // Here you define how you derive key_bits from a frame,
+  // and how you reconstruct a frame from key_bits.
+  // Right now it's a simple slice; you can replace with your real cipher.
 
-  /* ---------------------------------------------------------
-     4. Start Camera
-  --------------------------------------------------------- */
+  function encodeFrameToKeyBits(b64Frame) {
+    // TEMP: take first 64 chars as "key_bits"
+    return b64Frame.slice(0, 64);
+  }
+
+  function reconstructFrameFromKeyBits(key_bits) {
+    // TEMP: fake reconstruction by embedding key_bits into a dummy JPEG
+    // In your real system, you'd use key_bits + cipher to rebuild the frame.
+    // For now, we just return null to avoid showing garbage.
+    return null;
+  }
+
+  // -------------------------------------------------------
+  // 5. Start camera
+  // -------------------------------------------------------
   navigator.mediaDevices.getUserMedia({ video: true, audio: false })
     .then(stream => {
       localVideo.srcObject = stream;
       startSending(stream);
     });
 
+  // -------------------------------------------------------
+  // 6. Batched cipher sending
+  // -------------------------------------------------------
+  let keyBitsBuffer = [];
 
-  /* ---------------------------------------------------------
-     5. Send Frames to Firebase
-  --------------------------------------------------------- */
   function startSending(stream) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
 
+    // Capture frames frequently
     setInterval(() => {
       canvas.width = localVideo.videoWidth || 320;
       canvas.height = localVideo.videoHeight || 240;
       ctx.drawImage(localVideo, 0, 0);
 
-      // Convert to JPEG → base64
       const jpeg = canvas.toDataURL("image/jpeg", 0.4);
       const b64 = jpeg.split(",")[1];
 
-      // Write frame to Firebase
-      const frameRef = push(ref(db, `rooms/${roomId}/frames`));
-      set(frameRef, {
+      const key_bits = encodeFrameToKeyBits(b64);
+      keyBitsBuffer.push(key_bits);
+    }, 200); // capture ~5 frames/sec
+
+    // Send batches less frequently
+    setInterval(() => {
+      if (keyBitsBuffer.length === 0) return;
+
+      const batchRef = push(ref(db, `rooms/${roomId}/cipher_batches`));
+      set(batchRef, {
         from: userId,
-        data: b64,
+        key_bits_batch: keyBitsBuffer,
         ts: serverTimestamp()
       });
 
-    }, 200); // ~5 FPS (safe for Firebase)
+      keyBitsBuffer = [];
+    }, 1000); // send 1 batch/sec
   }
 
+  // -------------------------------------------------------
+  // 7. Receive batched cipher data
+  // -------------------------------------------------------
+  onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
+    const batch = snapshot.val();
+    if (!batch || batch.from === userId) return;
 
-  /* ---------------------------------------------------------
-     6. Receive Frames from Firebase
-  --------------------------------------------------------- */
-  onChildAdded(ref(db, `rooms/${roomId}/frames`), snapshot => {
-    const frame = snapshot.val();
-    if (!frame || frame.from === userId) return;
-
-    remoteVideo.src = "data:image/jpeg;base64," + frame.data;
+    const arr = batch.key_bits_batch || [];
+    for (const key_bits of arr) {
+      const reconstructed = reconstructFrameFromKeyBits(key_bits);
+      if (reconstructed) {
+        remoteVideo.src = "data:image/jpeg;base64," + reconstructed;
+      }
+    }
   });
 
-
-  /* ---------------------------------------------------------
-     7. Signaling (Call / Answer / Hangup)
-  --------------------------------------------------------- */
+  // -------------------------------------------------------
+  // 8. Signaling (call / answer / hangup)
+  // -------------------------------------------------------
   function sendSignal(type) {
     const sigRef = push(ref(db, `rooms/${roomId}/signals`));
     set(sigRef, {
@@ -151,7 +178,6 @@
   onChildAdded(ref(db, `rooms/${roomId}/signals`), snapshot => {
     const sig = snapshot.val();
     if (!sig || sig.from === userId) return;
-
     console.log("Signal from other user:", sig.type);
   });
 
