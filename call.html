@@ -2,15 +2,15 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Call v3.2</title>
+  <title>GeoRun Video Call v3.4</title>
   <style>
     body {
       background: #000;
       color: #fff;
-      font-family: Arial;
+      font-family: Arial, sans-serif;
       text-align: center;
     }
-    video {
+    video, img {
       width: 45%;
       margin: 10px;
       background: #222;
@@ -23,16 +23,45 @@
       border-radius: 8px;
       cursor: pointer;
       font-size: 18px;
+      border: none;
+    }
+    #hvideo-icon {
+      width: 64px;
+      height: 64px;
+      margin: 10px auto 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      animation: hvideaPulse 1.2s infinite alternate;
+      background: #111;
+      border: 2px solid #0af;
+      color: #0af;
+    }
+    @keyframes hvideaPulse {
+      0% {
+        box-shadow: 0 0 4px #0af, 0 0 8px #0af;
+        transform: scale(1);
+      }
+      100% {
+        box-shadow: 0 0 12px #0ff, 0 0 24px #0ff;
+        transform: scale(1.08);
+      }
     }
   </style>
 </head>
 <body>
 
-  <h1>GeoRun Video Caller v3.3</h1>
+  <h1>GeoRun Video Caller v3.4</h1>
+
+  <div id="hvideo-icon">HVIDEA</div>
 
   <div>
-    <video id="local" autoplay muted></video>
-    <video id="remote" autoplay></video>
+    <video id="local" autoplay muted playsinline></video>
+    <img id="remote" alt="Remote cipher video">
   </div>
 
   <div>
@@ -67,14 +96,14 @@
   const userId = "user-" + Math.random().toString(36).slice(2);
 
   const localVideo = document.getElementById("local");
-  const remoteVideo = document.getElementById("remote");
+  const remoteImg = document.getElementById("remote");
 
   // 8,192 cipher characters per frame
   function encodeFrameToKeyBits(b64Frame) {
     return b64Frame.slice(0, 8192);
   }
 
-  // Convert key_bits → HVIDEA draw calls
+  // key_bits → HVIDEA-style draw calls
   function keyBitsToDrawCalls(key_bits, width, height) {
     const calls = [];
 
@@ -105,7 +134,7 @@
     return calls;
   }
 
-  // Render HVIDEA draw calls
+  // Render draw calls to a JPEG data URL
   function renderDrawCalls(calls, width, height) {
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -127,7 +156,6 @@
 
       ctx.fillStyle = `rgb(${r},${g},${b})`;
 
-      // 12×12 visible cipher blocks
       const size = 12;
       const dx = Math.min(x, width - size);
       const dy = Math.min(y, height - size);
@@ -152,7 +180,7 @@
   let keyBitsBuffer = [];
 
   function startSending() {
-    console.log("v3.2: startSending called");
+    console.log("v3.4: startSending called");
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -181,7 +209,7 @@
         key_bits_batch: keyBitsBuffer,
         ts: serverTimestamp()
       };
-      console.log("v3.2: sending batch", payload);
+      console.log("v3.4: sending batch", payload);
       set(batchRef, payload);
 
       keyBitsBuffer = [];
@@ -192,24 +220,24 @@
     .then(stream => {
       localVideo.srcObject = stream;
       localVideo.onloadedmetadata = () => {
-        console.log("v3.2: camera ready, starting sender");
+        console.log("v3.4: camera ready, starting sender");
         startSending();
       };
     })
     .catch(err => {
-      console.error("v3.2: getUserMedia failed", err);
+      console.error("v3.4: getUserMedia failed", err);
     });
 
   onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
     const batch = snapshot.val();
     if (!batch || batch.from === userId) return;
 
-    console.log("v3.2: received batch", batch);
+    console.log("v3.4: received batch", batch);
 
     for (const key_bits of batch.key_bits_batch) {
       const reconstructed = reconstructFrameFromKeyBits(key_bits);
       if (reconstructed) {
-        remoteVideo.src = "data:image/jpeg;base64," + reconstructed;
+        remoteImg.src = "data:image/jpeg;base64," + reconstructed;
       }
     }
   });
