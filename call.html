@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Call</title>
+  <title>GeoRun Video Call v3</title>
   <style>
     body {
       background: #000;
@@ -28,7 +28,7 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller (Cipher Batchedv2)</h1>
+  <h1>GeoRun Video Caller v3</h1>
 
   <div>
     <video id="local" autoplay muted></video>
@@ -87,8 +87,8 @@
   }
 
   /* ---------------------------------------------------------
-     5. Cipher Reconstruction (your math)
-     pixel = (key_bits[i] % 256) * 8
+     5. Cipher Reconstruction (v3 math)
+     pixel = ((kb % 255) * (count of 1s + 0s)) % 256
   --------------------------------------------------------- */
   function reconstructFrameFromKeyBits(key_bits) {
     const width = 320;
@@ -103,15 +103,33 @@
     const data = imgData.data;
 
     for (let i = 0; i < width * height; i++) {
+
+      // Pick a key_bits character for this pixel
       const kb = key_bits.charCodeAt(i % key_bits.length);
 
-      // Your cipher math:
-      const v = (kb % 256) * 8;
+      // Step 1: wrap around 255
+      const wrapped = kb % 255;
 
-      data[i * 4 + 0] = v; // R
-      data[i * 4 + 1] = v; // G
-      data[i * 4 + 2] = v; // B
-      data[i * 4 + 3] = 255; // A
+      // Step 2: convert to binary
+      const bin = kb.toString(2);
+
+      // Step 3: count 1s and 0s
+      let ones = 0;
+      let zeros = 0;
+      for (const bit of bin) {
+        if (bit === '1') ones++;
+        else if (bit === '0') zeros++;
+      }
+      const sumBits = ones + zeros;
+
+      // Step 4: multiply and wrap into 0–255
+      const v = (wrapped * sumBits) % 256;
+
+      // Step 5: write pixel (grayscale)
+      data[i * 4 + 0] = v;
+      data[i * 4 + 1] = v;
+      data[i * 4 + 2] = v;
+      data[i * 4 + 3] = 255;
     }
 
     ctx.putImageData(imgData, 0, 0);
