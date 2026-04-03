@@ -28,7 +28,7 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller (Batched Cipher)</h1>
+  <h1>GeoRun Video Caller (Cipher Batched)</h1>
 
   <div>
     <video id="local" autoplay muted></video>
@@ -42,9 +42,9 @@
   </div>
 
 <script type="module">
-  // -------------------------------------------------------
-  // 1. Firebase imports
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     1. Firebase Imports
+  --------------------------------------------------------- */
   import { initializeApp } 
     from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 
@@ -52,9 +52,9 @@
     getDatabase, ref, push, set, onChildAdded, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-  // -------------------------------------------------------
-  // 2. Firebase config (your project)
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     2. Firebase Config
+  --------------------------------------------------------- */
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
     authDomain: "georun-web.firebaseapp.com",
@@ -69,53 +69,75 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // -------------------------------------------------------
-  // 3. Room + user
-  // -------------------------------------------------------
-  const roomId = "test-room"; // later: make dynamic
+  /* ---------------------------------------------------------
+     3. Room + User
+  --------------------------------------------------------- */
+  const roomId = "test-room";
   const userId = "user-" + Math.random().toString(36).slice(2);
 
   const localVideo = document.getElementById("local");
   const remoteVideo = document.getElementById("remote");
 
-  // -------------------------------------------------------
-  // 4. Cipher helpers (placeholder)
-  // -------------------------------------------------------
-  // Here you define how you derive key_bits from a frame,
-  // and how you reconstruct a frame from key_bits.
-  // Right now it's a simple slice; you can replace with your real cipher.
-
+  /* ---------------------------------------------------------
+     4. Cipher Encoding (extract key_bits)
+  --------------------------------------------------------- */
   function encodeFrameToKeyBits(b64Frame) {
-    // TEMP: take first 64 chars as "key_bits"
-    return b64Frame.slice(0, 64);
+    // Take first 128 chars as key_bits (adjustable)
+    return b64Frame.slice(0, 128);
   }
 
+  /* ---------------------------------------------------------
+     5. Cipher Reconstruction (your math)
+     pixel = (key_bits[i] % 256) * 8
+  --------------------------------------------------------- */
   function reconstructFrameFromKeyBits(key_bits) {
-    // TEMP: fake reconstruction by embedding key_bits into a dummy JPEG
-    // In your real system, you'd use key_bits + cipher to rebuild the frame.
-    // For now, we just return null to avoid showing garbage.
-    return null;
+    const width = 320;
+    const height = 240;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+
+    for (let i = 0; i < width * height; i++) {
+      const kb = key_bits.charCodeAt(i % key_bits.length);
+
+      // Your cipher math:
+      const v = (kb % 256) * 8;
+
+      data[i * 4 + 0] = v; // R
+      data[i * 4 + 1] = v; // G
+      data[i * 4 + 2] = v; // B
+      data[i * 4 + 3] = 255; // A
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    return canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
   }
 
-  // -------------------------------------------------------
-  // 5. Start camera
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     6. Start Camera
+  --------------------------------------------------------- */
   navigator.mediaDevices.getUserMedia({ video: true, audio: false })
     .then(stream => {
       localVideo.srcObject = stream;
       startSending(stream);
     });
 
-  // -------------------------------------------------------
-  // 6. Batched cipher sending
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     7. Batched Sending
+  --------------------------------------------------------- */
   let keyBitsBuffer = [];
 
   function startSending(stream) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
 
-    // Capture frames frequently
+    // Capture frames
     setInterval(() => {
       canvas.width = localVideo.videoWidth || 320;
       canvas.height = localVideo.videoHeight || 240;
@@ -126,9 +148,9 @@
 
       const key_bits = encodeFrameToKeyBits(b64);
       keyBitsBuffer.push(key_bits);
-    }, 200); // capture ~5 frames/sec
+    }, 200); // ~5 FPS capture
 
-    // Send batches less frequently
+    // Send batches
     setInterval(() => {
       if (keyBitsBuffer.length === 0) return;
 
@@ -143,15 +165,14 @@
     }, 1000); // send 1 batch/sec
   }
 
-  // -------------------------------------------------------
-  // 7. Receive batched cipher data
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     8. Receive Batches
+  --------------------------------------------------------- */
   onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
     const batch = snapshot.val();
     if (!batch || batch.from === userId) return;
 
-    const arr = batch.key_bits_batch || [];
-    for (const key_bits of arr) {
+    for (const key_bits of batch.key_bits_batch) {
       const reconstructed = reconstructFrameFromKeyBits(key_bits);
       if (reconstructed) {
         remoteVideo.src = "data:image/jpeg;base64," + reconstructed;
@@ -159,9 +180,9 @@
     }
   });
 
-  // -------------------------------------------------------
-  // 8. Signaling (call / answer / hangup)
-  // -------------------------------------------------------
+  /* ---------------------------------------------------------
+     9. Signaling
+  --------------------------------------------------------- */
   function sendSignal(type) {
     const sigRef = push(ref(db, `rooms/${roomId}/signals`));
     set(sigRef, {
