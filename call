@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>GeoRun Video Call</title>
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      font-family: Arial;
+      text-align: center;
+    }
+    video {
+      width: 45%;
+      margin: 10px;
+      background: #222;
+    }
+    .btn {
+      padding: 12px 25px;
+      margin: 10px;
+      background: #0af;
+      color: #000;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>GeoRun Video Caller</h1>
+
+  <div>
+    <video id="local" autoplay muted></video>
+    <video id="remote" autoplay></video>
+  </div>
+
+  <div>
+    <button class="btn" onclick="startCall()">Call</button>
+    <button class="btn" onclick="answerCall()">Answer</button>
+    <button class="btn" onclick="hangup()">Hang Up</button>
+  </div>
+
+<script>
+const SERVER = "https://script.google.com/macros/s/AKfycbxMW2VdT8HtcgG7zDXgTLbl3kV6elc0ityrSfuDrCR10Z0cx2xP5I39FSa73fua9BD8pQ/exec";
+
+const roomId = "test-room";
+const userId = "user-" + Math.random().toString(36).slice(2);
+
+// START CAMERA
+navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(stream => {
+  document.getElementById("local").srcObject = stream;
+  startSending(stream);
+});
+
+// SEND FRAMES (cipher-ready)
+function startSending(stream) {
+  const video = document.getElementById("local");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  setInterval(() => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    // JPEG frame → base64
+    const jpeg = canvas.toDataURL("image/jpeg", 0.4);
+
+    // Extract base64 only
+    const b64 = jpeg.split(",")[1];
+
+    // Placeholder cipher: send tiny key instead of full frame
+    const key_bits = b64.slice(0, 32); // TEMP — replace with your cipher
+
+    sendPacket("frame", { key_bits });
+
+  }, 150);
+}
+
+// RECEIVE FRAMES
+setInterval(() => {
+  fetch(SERVER, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roomId,
+      userId,
+      action: "poll"
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.frames) return;
+
+    // TEMP: reconstruct using base64 directly
+    const f = data.frames[0];
+    if (!f) return;
+
+    // TEMP: decode base64 → show remote
+    document.getElementById("remote").src = "data:image/jpeg;base64," + f.data;
+  });
+}, 200);
+
+// SIGNALING
+function startCall() {
+  sendPacket("signal", { type: "call" });
+}
+
+function answerCall() {
+  sendPacket("signal", { type: "answer" });
+}
+
+function hangup() {
+  sendPacket("signal", { type: "hangup" });
+}
+
+function sendPacket(action, extra) {
+  fetch(SERVER, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roomId,
+      userId,
+      action,
+      ...extra
+    })
+  });
+}
+</script>
+
+</body>
+</html>
+
