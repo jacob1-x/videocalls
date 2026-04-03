@@ -41,94 +41,121 @@
     <button class="btn" onclick="hangup()">Hang Up</button>
   </div>
 
-<script>
-const SERVER = "https://script.google.com/macros/s/AKfycbxMW2VdT8HtcgG7zDXgTLbl3kV6elc0ityrSfuDrCR10Z0cx2xP5I39FSa73fua9BD8pQ/exec";
+<!-- FIREBASE + VIDEO CALL LOGIC -->
+<script type="module">
 
-const roomId = "test-room";
-const userId = "user-" + Math.random().toString(36).slice(2);
+  /* ---------------------------------------------------------
+     1. Firebase Imports (works on GitHub Pages)
+  --------------------------------------------------------- */
+  import { initializeApp } 
+    from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 
-// START CAMERA
-navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(stream => {
-  document.getElementById("local").srcObject = stream;
-  startSending(stream);
-});
+  import { 
+    getDatabase, ref, push, set, onChildAdded, serverTimestamp 
+  } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-// SEND FRAMES (cipher-ready)
-function startSending(stream) {
-  const video = document.getElementById("local");
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
 
-  setInterval(() => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+  /* ---------------------------------------------------------
+     2. Your Firebase Config (COMPLETE + CORRECT)
+  --------------------------------------------------------- */
+  const firebaseConfig = {
+    apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
+    authDomain: "georun-web.firebaseapp.com",
+    databaseURL: "https://georun-web-default-rtdb.firebaseio.com",
+    projectId: "georun-web",
+    storageBucket: "georun-web.firebasestorage.app",
+    messagingSenderId: "772176051586",
+    appId: "1:772176051586:web:80a73f1c0ca4529ac5639b",
+    measurementId: "G-QNXQZD5FYL"
+  };
 
-    // JPEG frame → base64
-    const jpeg = canvas.toDataURL("image/jpeg", 0.4);
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
 
-    // Extract base64 only
-    const b64 = jpeg.split(",")[1];
 
-    // Placeholder cipher: send tiny key instead of full frame
-    const key_bits = b64.slice(0, 32); // TEMP — replace with your cipher
+  /* ---------------------------------------------------------
+     3. Room + User Setup
+  --------------------------------------------------------- */
+  const roomId = "test-room";   // You can change this or use prompt()
+  const userId = "user-" + Math.random().toString(36).slice(2);
 
-    sendPacket("frame", { key_bits });
+  const localVideo = document.getElementById("local");
+  const remoteVideo = document.getElementById("remote");
 
-  }, 150);
-}
 
-// RECEIVE FRAMES
-setInterval(() => {
-  fetch(SERVER, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      roomId,
-      userId,
-      action: "poll"
-    })
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (!data.frames) return;
+  /* ---------------------------------------------------------
+     4. Start Camera
+  --------------------------------------------------------- */
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(stream => {
+      localVideo.srcObject = stream;
+      startSending(stream);
+    });
 
-    // TEMP: reconstruct using base64 directly
-    const f = data.frames[0];
-    if (!f) return;
 
-    // TEMP: decode base64 → show remote
-    document.getElementById("remote").src = "data:image/jpeg;base64," + f.data;
+  /* ---------------------------------------------------------
+     5. Send Frames to Firebase
+  --------------------------------------------------------- */
+  function startSending(stream) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    setInterval(() => {
+      canvas.width = localVideo.videoWidth || 320;
+      canvas.height = localVideo.videoHeight || 240;
+      ctx.drawImage(localVideo, 0, 0);
+
+      // Convert to JPEG → base64
+      const jpeg = canvas.toDataURL("image/jpeg", 0.4);
+      const b64 = jpeg.split(",")[1];
+
+      // Write frame to Firebase
+      const frameRef = push(ref(db, `rooms/${roomId}/frames`));
+      set(frameRef, {
+        from: userId,
+        data: b64,
+        ts: serverTimestamp()
+      });
+
+    }, 200); // ~5 FPS (safe for Firebase)
+  }
+
+
+  /* ---------------------------------------------------------
+     6. Receive Frames from Firebase
+  --------------------------------------------------------- */
+  onChildAdded(ref(db, `rooms/${roomId}/frames`), snapshot => {
+    const frame = snapshot.val();
+    if (!frame || frame.from === userId) return;
+
+    remoteVideo.src = "data:image/jpeg;base64," + frame.data;
   });
-}, 200);
 
-// SIGNALING
-function startCall() {
-  sendPacket("signal", { type: "call" });
-}
 
-function answerCall() {
-  sendPacket("signal", { type: "answer" });
-}
+  /* ---------------------------------------------------------
+     7. Signaling (Call / Answer / Hangup)
+  --------------------------------------------------------- */
+  function sendSignal(type) {
+    const sigRef = push(ref(db, `rooms/${roomId}/signals`));
+    set(sigRef, {
+      from: userId,
+      type,
+      ts: serverTimestamp()
+    });
+  }
 
-function hangup() {
-  sendPacket("signal", { type: "hangup" });
-}
+  window.startCall = () => sendSignal("call");
+  window.answerCall = () => sendSignal("answer");
+  window.hangup = () => sendSignal("hangup");
 
-function sendPacket(action, extra) {
-  fetch(SERVER, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      roomId,
-      userId,
-      action,
-      ...extra
-    })
+  onChildAdded(ref(db, `rooms/${roomId}/signals`), snapshot => {
+    const sig = snapshot.val();
+    if (!sig || sig.from === userId) return;
+
+    console.log("Signal from other user:", sig.type);
   });
-}
+
 </script>
 
 </body>
 </html>
-
