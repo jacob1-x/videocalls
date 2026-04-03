@@ -69,12 +69,12 @@
   const localVideo = document.getElementById("local");
   const remoteVideo = document.getElementById("remote");
 
-  // Take first 128 chars of frame as key_bits
+  // 8,192 cipher characters per frame
   function encodeFrameToKeyBits(b64Frame) {
-    return b64Frame.slice(0, 128);
+    return b64Frame.slice(0, 8192);
   }
 
-  // --- HVIDEA-style: key_bits -> draw-call array -----------------
+  // Convert key_bits → HVIDEA draw calls
   function keyBitsToDrawCalls(key_bits, width, height) {
     const calls = [];
 
@@ -105,7 +105,7 @@
     return calls;
   }
 
-  // --- Render draw-call array to canvas --------------------------
+  // Render HVIDEA draw calls
   function renderDrawCalls(calls, width, height) {
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -126,10 +126,15 @@
       const b = parseInt(match[5]);
 
       ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(x, y, 2, 2);
+
+      // 12×12 visible cipher blocks
+      const size = 12;
+      const dx = Math.min(x, width - size);
+      const dy = Math.min(y, height - size);
+
+      ctx.fillRect(dx, dy, size, size);
     }
 
-    // debug border so you know it updated
     ctx.strokeStyle = "red";
     ctx.lineWidth = 2;
     ctx.strokeRect(0, 0, width, height);
@@ -137,7 +142,6 @@
     return canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
   }
 
-  // --- Final reconstruction: key_bits -> draw calls -> frame -----
   function reconstructFrameFromKeyBits(key_bits) {
     const width = 320;
     const height = 240;
