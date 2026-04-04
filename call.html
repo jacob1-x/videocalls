@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Caller v4</title>
+  <title>GeoRun Ring v5</title>
   <style>
     body {
       background: #000;
@@ -24,32 +24,6 @@
       cursor: pointer;
       font-size: 18px;
       border: none;
-    }
-    #hvideo-icon {
-      width: 64px;
-      height: 64px;
-      margin: 10px auto 20px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: bold;
-      letter-spacing: 1px;
-      animation: hvideaPulse 1.2s infinite alternate;
-      background: #111;
-      border: 2px solid #0af;
-      color: #0af;
-    }
-    @keyframes hvideaPulse {
-      0% {
-        box-shadow: 0 0 4px #0af, 0 0 8px #0af;
-        transform: scale(1);
-      }
-      100% {
-        box-shadow: 0 0 12px #0ff, 0 0 24px #0ff;
-        transform: scale(1.08);
-      }
     }
     #users-panel {
       margin-top: 20px;
@@ -77,23 +51,20 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller v4</h1>
-
-  <div id="hvideo-icon">HVIDEA</div>
+  <h1>GeoRun Ring v5</h1>
 
   <div>
     <video id="local" autoplay muted playsinline></video>
-    <canvas id="remote" width="320" height="240"></canvas>
+    <canvas id="mixed" width="320" height="240"></canvas>
   </div>
 
   <div>
-    <button class="btn" onclick="startCall()">Call</button>
-    <button class="btn" onclick="answerCall()">Answer</button>
+    <button class="btn" onclick="startRing()">Join Ring</button>
     <button class="btn" onclick="hangup()">Hang Up</button>
   </div>
 
   <div id="users-panel">
-    <h3>Connected users</h3>
+    <h3>Connected users (ring order)</h3>
     <ul id="users-list"></ul>
   </div>
 
@@ -113,14 +84,14 @@
     location.search = "?room=" + roomId;
   }
 
-  // --- STABLE SENDER ID PER TAB ---
+  // --- STABLE USER ID ---
   let userId = sessionStorage.getItem("userId");
   if (!userId) {
     userId = "user-" + Math.random().toString(36).slice(2);
     sessionStorage.setItem("userId", userId);
   }
 
-  console.log("v4: roomId =", roomId, "userId =", userId);
+  console.log("v5: roomId =", roomId, "userId =", userId);
 
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
@@ -137,106 +108,64 @@
   const db = getDatabase(app);
 
   const localVideo = document.getElementById("local");
-  const remoteCanvas = document.getElementById("remote");
-  const remoteCtx = remoteCanvas.getContext("2d");
+  const mixedCanvas = document.getElementById("mixed");
+  const mixedCtx = mixedCanvas.getContext("2d");
   const usersListEl = document.getElementById("users-list");
 
-  // Offscreen video for remote stream → drawn into canvas
-  const remoteVideo = document.createElement("video");
-  remoteVideo.autoplay = true;
-  remoteVideo.playsInline = true;
+  // Offscreen video for incoming stream
+  const incomingVideo = document.createElement("video");
+  incomingVideo.autoplay = true;
+  incomingVideo.playsInline = true;
 
-  // --- WEBRTC CONFIG ---
   const pcConfig = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   };
 
-  let pc = null;       // video PC
-  let pcAudio = null;  // audio PC
   let localStream = null;
-  let audioStream = null;
+  let pcIn = null;   // from previous user
+  let pcOut = null;  // to next user
+  let ringUsers = [];
+  let prevId = null;
+  let nextId = null;
+  let ringStarted = false;
 
-  // --- LOCAL MEDIA ---
   async function initLocalMedia() {
     if (localStream) return;
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     localVideo.srcObject = localStream;
   }
 
-  async function initAudio() {
-    if (audioStream) return;
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  }
+  // --- PRESENCE / RING ORDER ---
+  const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
+  set(usersRef, { joinedAt: serverTimestamp() });
+  onDisconnect(usersRef).remove();
 
-  // --- PEER CONNECTIONS ---
-  function createPeerConnection() {
-    pc = new RTCPeerConnection(pcConfig);
+  onValue(ref(db, `rooms/${roomId}/users`), snapshot => {
+    const users = snapshot.val() || {};
+    ringUsers = Object.keys(users).sort(); // simple deterministic order
+    usersListEl.innerHTML = "";
+    ringUsers.forEach(uid => {
+      const li = document.createElement("li");
+      li.textContent = uid === userId ? `${uid} (you)` : uid;
+      usersListEl.appendChild(li);
+    });
+    computeNeighbors();
+  });
 
-    if (localStream) {
-      for (const track of localStream.getTracks()) {
-        pc.addTrack(track, localStream);
-      }
+  function computeNeighbors() {
+    const idx = ringUsers.indexOf(userId);
+    if (idx === -1 || ringUsers.length < 2) {
+      prevId = null;
+      nextId = null;
+      return;
     }
-
-    pc.ontrack = (event) => {
-      console.log("v4: video ontrack", event.streams);
-      const [stream] = event.streams;
-      remoteVideo.srcObject = stream;
-      startRemoteCanvasLoop();
-    };
-
-    pc.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      sendSignal({
-        type: "candidate",
-        candidate: event.candidate.toJSON()
-      });
-    };
+    const n = ringUsers.length;
+    prevId = ringUsers[(idx - 1 + n) % n];
+    nextId = ringUsers[(idx + 1) % n];
+    console.log("v5: neighbors prev =", prevId, "next =", nextId);
   }
 
-  function createAudioPeerConnection() {
-    pcAudio = new RTCPeerConnection(pcConfig);
-
-    if (audioStream) {
-      for (const track of audioStream.getTracks()) {
-        pcAudio.addTrack(track, audioStream);
-      }
-    }
-
-    pcAudio.ontrack = (event) => {
-      console.log("v4: audio ontrack", event.streams);
-      const [stream] = event.streams;
-      const audioEl = new Audio();
-      audioEl.autoplay = true;
-      audioEl.srcObject = stream;
-    };
-
-    pcAudio.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      sendSignal({
-        type: "candidate-audio",
-        candidate: event.candidate.toJSON()
-      });
-    };
-  }
-
-  function startRemoteCanvasLoop() {
-    function draw() {
-      if (remoteVideo.readyState >= 2) {
-        const w = remoteVideo.videoWidth || 320;
-        const h = remoteVideo.videoHeight || 240;
-        remoteCanvas.width = w;
-        remoteCanvas.height = h;
-        remoteCtx.drawImage(remoteVideo, 0, 0, w, h);
-      }
-      requestAnimationFrame(draw);
-    }
-    requestAnimationFrame(draw);
-  }
-
-  // --- SIGNALING HELPERS ---
+  // --- SIGNALING ---
   function sendSignal(payload) {
     const sigRef = push(ref(db, `rooms/${roomId}/signals`));
     set(sigRef, {
@@ -246,145 +175,165 @@
     });
   }
 
-  // --- CALL / ANSWER / HANGUP ---
-  window.startCall = async () => {
-    console.log("v4: startCall");
-    await initLocalMedia();
-    await initAudio();
-
-    createPeerConnection();
-    createAudioPeerConnection();
-
-    const offerVideo = await pc.createOffer();
-    await pc.setLocalDescription(offerVideo);
-
-    const offerAudio = await pcAudio.createOffer();
-    await pcAudio.setLocalDescription(offerAudio);
-
-    sendSignal({
-      type: "call",
-      sdpVideo: offerVideo,
-      sdpAudio: offerAudio
-    });
-  };
-
-  window.answerCall = async () => {
-    console.log("v4: answerCall");
-    await initLocalMedia();
-    await initAudio();
-
-    createPeerConnection();
-    createAudioPeerConnection();
-    // We wait for "call" in the signal listener
-  };
-
-  window.hangup = () => {
-    console.log("v4: hangup");
-    if (pc) {
-      pc.close();
-      pc = null;
-    }
-    if (pcAudio) {
-      pcAudio.close();
-      pcAudio = null;
-    }
-  };
-
-  // --- SIGNAL LISTENER ---
   onChildAdded(ref(db, `rooms/${roomId}/signals`), async (snapshot) => {
     const sig = snapshot.val();
     if (!sig || sig.from === userId) return;
 
-    console.log("v4: signal from other user:", sig.type);
+    // Only handle messages addressed to us
+    if (sig.to && sig.to !== userId) return;
 
-    if (sig.type === "call") {
-      // We are callee
-      if (!pc) {
-        await initLocalMedia();
-        createPeerConnection();
-      }
-      if (!pcAudio) {
-        await initAudio();
-        createAudioPeerConnection();
-      }
+    console.log("v5: signal for me:", sig.type, "link:", sig.link);
 
-      if (sig.sdpVideo) {
-        const remoteDescVideo = new RTCSessionDescription(sig.sdpVideo);
-        await pc.setRemoteDescription(remoteDescVideo);
-        const answerVideo = await pc.createAnswer();
-        await pc.setLocalDescription(answerVideo);
-
-        if (sig.sdpAudio && pcAudio) {
-          const remoteDescAudio = new RTCSessionDescription(sig.sdpAudio);
-          await pcAudio.setRemoteDescription(remoteDescAudio);
-          const answerAudio = await pcAudio.createAnswer();
-          await pcAudio.setLocalDescription(answerAudio);
-
-          sendSignal({
-            type: "answer",
-            sdpVideo: answerVideo,
-            sdpAudio: answerAudio
-          });
-        } else {
-          sendSignal({
-            type: "answer",
-            sdpVideo: answerVideo
-          });
-        }
-      }
-
-    } else if (sig.type === "answer") {
-      // We are caller
-      if (pc && sig.sdpVideo) {
-        const remoteDescVideo = new RTCSessionDescription(sig.sdpVideo);
-        await pc.setRemoteDescription(remoteDescVideo);
-      }
-      if (pcAudio && sig.sdpAudio) {
-        const remoteDescAudio = new RTCSessionDescription(sig.sdpAudio);
-        await pcAudio.setRemoteDescription(remoteDescAudio);
-      }
-
+    if (sig.type === "offer" && sig.link === "in") {
+      // Incoming from previous user
+      if (!pcIn) createIncomingPC();
+      await pcIn.setRemoteDescription(new RTCSessionDescription(sig.sdp));
+      const answer = await pcIn.createAnswer();
+      await pcIn.setLocalDescription(answer);
+      sendSignal({
+        type: "answer",
+        link: "in",
+        to: sig.from,
+        sdp: answer
+      });
+    } else if (sig.type === "answer" && sig.link === "out") {
+      // Answer from next user
+      if (!pcOut) return;
+      await pcOut.setRemoteDescription(new RTCSessionDescription(sig.sdp));
     } else if (sig.type === "candidate") {
-      if (pc && sig.candidate) {
-        try {
-          await pc.addIceCandidate(sig.candidate);
-        } catch (e) {
-          console.error("v4: addIceCandidate (video) error", e);
-        }
-      }
-    } else if (sig.type === "candidate-audio") {
-      if (pcAudio && sig.candidate) {
-        try {
-          await pcAudio.addIceCandidate(sig.candidate);
-        } catch (e) {
-          console.error("v4: addIceCandidate (audio) error", e);
-        }
+      if (sig.link === "in" && pcIn) {
+        try { await pcIn.addIceCandidate(sig.candidate); } catch (e) { console.error(e); }
+      } else if (sig.link === "out" && pcOut) {
+        try { await pcOut.addIceCandidate(sig.candidate); } catch (e) { console.error(e); }
       }
     }
   });
 
-  // --- PRESENCE: WHO'S CONNECTED ---
-  const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
-  set(usersRef, {
-    joinedAt: serverTimestamp()
-  });
-  onDisconnect(usersRef).remove();
+  // --- PEER CONNECTIONS ---
+  function createIncomingPC() {
+    pcIn = new RTCPeerConnection(pcConfig);
+    pcIn.ontrack = (event) => {
+      console.log("v5: incoming ontrack");
+      const [stream] = event.streams;
+      incomingVideo.srcObject = stream;
+      startMixLoop();
+    };
+    pcIn.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendSignal({
+        type: "candidate",
+        link: "in",
+        to: prevId,
+        candidate: event.candidate.toJSON()
+      });
+    };
+  }
 
-  onValue(ref(db, `rooms/${roomId}/users`), snapshot => {
-    const users = snapshot.val() || {};
-    usersListEl.innerHTML = "";
-    Object.keys(users).forEach(uid => {
-      const li = document.createElement("li");
-      li.textContent = uid === userId ? `${uid} (you)` : uid;
-      usersListEl.appendChild(li);
+  function createOutgoingPC(mixedStream) {
+    pcOut = new RTCPeerConnection(pcConfig);
+    for (const track of mixedStream.getTracks()) {
+      pcOut.addTrack(track, mixedStream);
+    }
+    pcOut.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendSignal({
+        type: "candidate",
+        link: "out",
+        to: nextId,
+        candidate: event.candidate.toJSON()
+      });
+    };
+  }
+
+  // --- MIXING LOOP: incoming + local → mixedCanvas → captureStream ---
+  let mixLoopStarted = false;
+  let mixedStream = null;
+
+  function startMixLoop() {
+    if (mixLoopStarted) return;
+    mixLoopStarted = true;
+
+    function draw() {
+      const w = 320;
+      const h = 240;
+      mixedCanvas.width = w;
+      mixedCanvas.height = h;
+
+      mixedCtx.fillStyle = "black";
+      mixedCtx.fillRect(0, 0, w, h);
+
+      // Draw incoming stream if available
+      if (incomingVideo.readyState >= 2) {
+        mixedCtx.drawImage(incomingVideo, 0, 0, w, h);
+      }
+
+      // Overlay local camera in corner
+      if (localVideo.readyState >= 2) {
+        const lw = w / 4;
+        const lh = h / 4;
+        mixedCtx.drawImage(localVideo, w - lw - 10, h - lh - 10, lw, lh);
+      }
+
+      // Simple label
+      mixedCtx.fillStyle = "rgba(0,255,255,0.8)";
+      mixedCtx.font = "14px Arial";
+      mixedCtx.fillText(userId, 10, 20);
+
+      requestAnimationFrame(draw);
+    }
+
+    requestAnimationFrame(draw);
+
+    // Capture mixed stream for outgoing PC
+    mixedStream = mixedCanvas.captureStream(20);
+    if (nextId) {
+      createOutgoingPC(mixedStream);
+      createAndSendOfferToNext();
+    }
+  }
+
+  async function createAndSendOfferToNext() {
+    if (!pcOut || !nextId) return;
+    const offer = await pcOut.createOffer();
+    await pcOut.setLocalDescription(offer);
+    sendSignal({
+      type: "offer",
+      link: "out",
+      to: nextId,
+      sdp: offer
     });
-  });
+  }
+
+  // --- PUBLIC BUTTONS ---
+  window.startRing = async () => {
+    console.log("v5: startRing");
+    await initLocalMedia();
+    ringStarted = true;
+
+    // If we have a previous user, we expect an offer from them (pcIn created on demand)
+    // If we have a next user, we will send them an offer once mixedStream exists
+    if (!prevId && ringUsers.length > 1) {
+      // If we're the first in sorted order, we bootstrap the ring by sending
+      // a blank incoming stream (just our local) to next.
+      console.log("v5: bootstrapping ring as first user");
+      // No incoming yet, but we can still start mix loop with only local
+      startMixLoop();
+    }
+  };
+
+  window.hangup = () => {
+    console.log("v5: hangup");
+    ringStarted = false;
+    if (pcIn) { pcIn.close(); pcIn = null; }
+    if (pcOut) { pcOut.close(); pcOut = null; }
+  };
 
   // Start local preview immediately
   initLocalMedia().catch(err => {
-    console.error("v4: getUserMedia (video) failed", err);
+    console.error("v5: getUserMedia failed", err);
   });
 </script>
 
 </body>
 </html>
+
