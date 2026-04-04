@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Call v3.4</title>
+  <title>GeoRun Video Call v3.6</title>
   <style>
     body {
       background: #000;
@@ -10,7 +10,7 @@
       font-family: Arial, sans-serif;
       text-align: center;
     }
-    video, img {
+    video, canvas {
       width: 45%;
       margin: 10px;
       background: #222;
@@ -55,13 +55,13 @@
 </head>
 <body>
 
-  <h1>GeoRun Video Caller v3.4</h1>
+  <h1>GeoRun Video Caller v3.6</h1>
 
   <div id="hvideo-icon">HVIDEA</div>
 
   <div>
     <video id="local" autoplay muted playsinline></video>
-    <img id="remote" alt="Remote cipher video">
+    <canvas id="remote" width="320" height="240"></canvas>
   </div>
 
   <div>
@@ -78,6 +78,24 @@
     getDatabase, ref, push, set, onChildAdded, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
+  // --- URL-BASED ROOM ID ---
+  const params = new URLSearchParams(location.search);
+  let roomId = params.get("room");
+
+  if (!roomId) {
+    roomId = "room-" + Math.random().toString(36).slice(2);
+    location.search = "?room=" + roomId;
+  }
+
+  // --- STABLE SENDER ID PER TAB ---
+  let userId = sessionStorage.getItem("userId");
+  if (!userId) {
+    userId = "user-" + Math.random().toString(36).slice(2);
+    sessionStorage.setItem("userId", userId);
+  }
+
+  console.log("v3.6: roomId =", roomId, "userId =", userId);
+
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
     authDomain: "georun-web.firebaseapp.com",
@@ -92,18 +110,16 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  const roomId = "test-room";
-  const userId = "user-" + Math.random().toString(36).slice(2);
-
   const localVideo = document.getElementById("local");
-  const remoteImg = document.getElementById("remote");
+  const remoteCanvas = document.getElementById("remote");
+  const remoteCtx = remoteCanvas.getContext("2d");
 
-  // 8,192 cipher characters per frame
+  // --- ENCODING: FRAME → KEY_BITS (8,192 chars) ---
   function encodeFrameToKeyBits(b64Frame) {
     return b64Frame.slice(0, 8192);
   }
 
-  // key_bits → HVIDEA-style draw calls
+  // --- key_bits → HVIDEA-STYLE DRAW CALLS ---
   function keyBitsToDrawCalls(key_bits, width, height) {
     const calls = [];
 
@@ -134,13 +150,8 @@
     return calls;
   }
 
-  // Render draw calls to a JPEG data URL
-  function renderDrawCalls(calls, width, height) {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-
+  // --- RENDER: DRAW CALLS → COLORFUL PIXELATED LINES ON CANVAS ---
+  function renderDrawCallsToCanvas(calls, ctx, width, height) {
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, width, height);
 
@@ -154,33 +165,47 @@
       const g = parseInt(match[4]);
       const b = parseInt(match[5]);
 
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.strokeStyle = `rgb(${r},${g},${b})`;
+      ctx.lineWidth = 2;
 
-      const size = 12;
-      const dx = Math.min(x, width - size);
-      const dy = Math.min(y, height - size);
+      const len = 8 + (r % 16);      // 8–23 px
+      const mode = g % 3;            // 0: horizontal, 1: vertical, 2: diagonal
 
-      ctx.fillRect(dx, dy, size, size);
+      ctx.beginPath();
+      if (mode === 0) {
+        const x2 = Math.min(x + len, width);
+        ctx.moveTo(x + 0.5, y + 0.5);
+        ctx.lineTo(x2 + 0.5, y + 0.5);
+      } else if (mode === 1) {
+        const y2 = Math.min(y + len, height);
+        ctx.moveTo(x + 0.5, y + 0.5);
+        ctx.lineTo(x + 0.5, y2 + 0.5);
+      } else {
+        const x2 = Math.min(x + len, width);
+        const y2 = Math.min(y + len, height);
+        ctx.moveTo(x + 0.5, y + 0.5);
+        ctx.lineTo(x2 + 0.5, y2 + 0.5);
+      }
+      ctx.stroke();
     }
 
     ctx.strokeStyle = "red";
     ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, width, height);
-
-    return canvas.toDataURL("image/jpeg", 0.5).split(",")[1];
+    ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
   }
 
   function reconstructFrameFromKeyBits(key_bits) {
-    const width = 320;
-    const height = 240;
+    const width = remoteCanvas.width;
+    const height = remoteCanvas.height;
     const calls = keyBitsToDrawCalls(key_bits, width, height);
-    return renderDrawCalls(calls, width, height);
+    renderDrawCallsToCanvas(calls, remoteCtx, width, height);
   }
 
+  // --- SENDER PIPELINE ---
   let keyBitsBuffer = [];
 
   function startSending() {
-    console.log("v3.4: startSending called");
+    console.log("v3.6: startSending called");
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -209,7 +234,7 @@
         key_bits_batch: keyBitsBuffer,
         ts: serverTimestamp()
       };
-      console.log("v3.4: sending batch", payload);
+      console.log("v3.6: sending batch", payload);
       set(batchRef, payload);
 
       keyBitsBuffer = [];
@@ -220,28 +245,27 @@
     .then(stream => {
       localVideo.srcObject = stream;
       localVideo.onloadedmetadata = () => {
-        console.log("v3.4: camera ready, starting sender");
+        console.log("v3.6: camera ready, starting sender");
         startSending();
       };
     })
     .catch(err => {
-      console.error("v3.4: getUserMedia failed", err);
+      console.error("v3.6: getUserMedia failed", err);
     });
 
+  // --- RECEIVER PIPELINE ---
   onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
     const batch = snapshot.val();
     if (!batch || batch.from === userId) return;
 
-    console.log("v3.4: received batch", batch);
+    console.log("v3.6: received batch", batch);
 
     for (const key_bits of batch.key_bits_batch) {
-      const reconstructed = reconstructFrameFromKeyBits(key_bits);
-      if (reconstructed) {
-        remoteImg.src = "data:image/jpeg;base64," + reconstructed;
-      }
+      reconstructFrameFromKeyBits(key_bits);
     }
   });
 
+  // --- SIGNALING (CALL / ANSWER / HANGUP) ---
   function sendSignal(type) {
     const sigRef = push(ref(db, `rooms/${roomId}/signals`));
     set(sigRef, {
@@ -258,7 +282,7 @@
   onChildAdded(ref(db, `rooms/${roomId}/signals`), snapshot => {
     const sig = snapshot.val();
     if (!sig || sig.from === userId) return;
-    console.log("Signal from other user:", sig.type);
+    console.log("v3.6: signal from other user:", sig.type);
   });
 </script>
 
