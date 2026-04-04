@@ -2,81 +2,147 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Ring v5</title>
+  <title>GeoRun Call + Extras</title>
   <style>
     body {
       background: #000;
       color: #fff;
       font-family: Arial, sans-serif;
-      text-align: center;
+      margin: 0;
+      padding: 0;
     }
-    video, canvas {
-      width: 45%;
-      margin: 10px;
+    header {
+      padding: 10px 20px;
+      background: #111;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    main {
+      display: flex;
+      flex-wrap: wrap;
+      padding: 10px;
+      gap: 10px;
+    }
+    section {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px;
+      flex: 1 1 300px;
+      min-width: 280px;
+    }
+    video {
+      width: 100%;
+      max-height: 240px;
       background: #222;
     }
+    #remote-videos video {
+      width: 48%;
+      margin: 1%;
+    }
     .btn {
-      padding: 12px 25px;
-      margin: 10px;
+      padding: 8px 16px;
+      margin: 4px;
       background: #0af;
       color: #000;
-      border-radius: 8px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 18px;
+      font-size: 14px;
       border: none;
     }
-    #users-panel {
-      margin-top: 20px;
-      text-align: left;
-      display: inline-block;
-      background: #111;
-      padding: 10px 15px;
-      border-radius: 8px;
-      border: 1px solid #333;
+    input, textarea {
+      width: 100%;
+      margin: 4px 0;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #000;
+      color: #fff;
+      font-size: 13px;
     }
-    #users-panel h3 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-    }
-    #users-list {
+    ul {
       list-style: none;
       padding: 0;
       margin: 0;
-      font-size: 14px;
+      font-size: 13px;
     }
-    #users-list li {
+    li {
       margin: 2px 0;
+    }
+    .small {
+      font-size: 12px;
+      color: #aaa;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #222;
+      margin-left: 4px;
+      font-size: 11px;
     }
   </style>
 </head>
 <body>
 
-  <h1>GeoRun Ring v5</h1>
-
+<header>
+  <h1>GeoRun Call + Extras</h1>
   <div>
-    <video id="local" autoplay muted playsinline></video>
-    <canvas id="mixed" width="320" height="240"></canvas>
+    <button class="btn" id="joinBtn">Join Call</button>
+    <button class="btn" id="leaveBtn">Leave</button>
+    <span id="modeLabel" class="small"></span>
   </div>
+</header>
 
-  <div>
-    <button class="btn" onclick="startRing()">Join Ring</button>
-    <button class="btn" onclick="hangup()">Hang Up</button>
-  </div>
+<main>
+  <section>
+    <h2>Local</h2>
+    <video id="localVideo" autoplay muted playsinline></video>
+    <div class="small" id="roomInfo"></div>
+  </section>
 
-  <div id="users-panel">
-    <h3>Connected users (ring order)</h3>
+  <section>
+    <h2>Remote</h2>
+    <div id="remote-videos"></div>
+  </section>
+
+  <section>
+    <h2>Presence</h2>
     <ul id="users-list"></ul>
-  </div>
+    <div class="small" id="limitInfo"></div>
+  </section>
+
+  <section>
+    <h2>File sharing</h2>
+    <input id="fileName" placeholder="File name or label">
+    <textarea id="fileUrl" rows="2" placeholder="Link or description"></textarea>
+    <button class="btn" id="sendFileBtn">Share</button>
+    <ul id="filesList"></ul>
+  </section>
+
+  <section>
+    <h2>Polling</h2>
+    <input id="pollQuestion" placeholder="Poll question">
+    <input id="pollOptions" placeholder="Options (comma separated)">
+    <button class="btn" id="createPollBtn">Create poll</button>
+    <div id="polls"></div>
+  </section>
+</main>
 
 <script type="module">
   import { initializeApp } 
     from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
   import {
     getDatabase, ref, push, set, onChildAdded, onValue,
-    onDisconnect, serverTimestamp
+    onDisconnect, serverTimestamp, update
   } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-  // --- URL-BASED ROOM ID ---
+  // --- ROOM + USER ---
   const params = new URLSearchParams(location.search);
   let roomId = params.get("room");
   if (!roomId) {
@@ -84,14 +150,14 @@
     location.search = "?room=" + roomId;
   }
 
-  // --- STABLE USER ID ---
   let userId = sessionStorage.getItem("userId");
   if (!userId) {
     userId = "user-" + Math.random().toString(36).slice(2);
     sessionStorage.setItem("userId", userId);
   }
 
-  console.log("v5: roomId =", roomId, "userId =", userId);
+  document.getElementById("roomInfo").textContent =
+    `Room: ${roomId} | You: ${userId}`;
 
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
@@ -107,63 +173,55 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  const localVideo = document.getElementById("local");
-  const mixedCanvas = document.getElementById("mixed");
-  const mixedCtx = mixedCanvas.getContext("2d");
+  const localVideo = document.getElementById("localVideo");
+  const remoteContainer = document.getElementById("remote-videos");
   const usersListEl = document.getElementById("users-list");
-
-  // Offscreen video for incoming stream
-  const incomingVideo = document.createElement("video");
-  incomingVideo.autoplay = true;
-  incomingVideo.playsInline = true;
+  const limitInfo = document.getElementById("limitInfo");
+  const modeLabel = document.getElementById("modeLabel");
 
   const pcConfig = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   };
 
   let localStream = null;
-  let pcIn = null;   // from previous user
-  let pcOut = null;  // to next user
-  let ringUsers = [];
-  let prevId = null;
-  let nextId = null;
-  let ringStarted = false;
+  let joined = false;
+  let users = [];
+  const peers = {};      // remoteId -> RTCPeerConnection
+  const remoteVideos = {}; // remoteId -> video element
 
   async function initLocalMedia() {
     if (localStream) return;
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
     localVideo.srcObject = localStream;
   }
 
-  // --- PRESENCE / RING ORDER ---
-  const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
-  set(usersRef, { joinedAt: serverTimestamp() });
-  onDisconnect(usersRef).remove();
+  // --- PRESENCE ---
+  const userRef = ref(db, `rooms/${roomId}/users/${userId}`);
+  set(userRef, { joinedAt: serverTimestamp() });
+  onDisconnect(userRef).remove();
 
   onValue(ref(db, `rooms/${roomId}/users`), snapshot => {
-    const users = snapshot.val() || {};
-    ringUsers = Object.keys(users).sort(); // simple deterministic order
+    const val = snapshot.val() || {};
+    users = Object.keys(val).sort();
     usersListEl.innerHTML = "";
-    ringUsers.forEach(uid => {
+    users.forEach(uid => {
       const li = document.createElement("li");
       li.textContent = uid === userId ? `${uid} (you)` : uid;
       usersListEl.appendChild(li);
     });
-    computeNeighbors();
-  });
 
-  function computeNeighbors() {
-    const idx = ringUsers.indexOf(userId);
-    if (idx === -1 || ringUsers.length < 2) {
-      prevId = null;
-      nextId = null;
-      return;
+    const count = users.length;
+    if (count <= 3) {
+      modeLabel.textContent = "Mode: Mesh (up to 3 callers)";
+      limitInfo.textContent = "";
+    } else {
+      modeLabel.textContent = "Mode: Room full (4+ not active yet)";
+      limitInfo.textContent = "This room supports up to 3 active callers. Extra users can still use chat/files/polls.";
     }
-    const n = ringUsers.length;
-    prevId = ringUsers[(idx - 1 + n) % n];
-    nextId = ringUsers[(idx + 1) % n];
-    console.log("v5: neighbors prev =", prevId, "next =", nextId);
-  }
+  });
 
   // --- SIGNALING ---
   function sendSignal(payload) {
@@ -178,162 +236,197 @@
   onChildAdded(ref(db, `rooms/${roomId}/signals`), async (snapshot) => {
     const sig = snapshot.val();
     if (!sig || sig.from === userId) return;
-
-    // Only handle messages addressed to us
     if (sig.to && sig.to !== userId) return;
 
-    console.log("v5: signal for me:", sig.type, "link:", sig.link);
+    const { type, from, sdp, candidate } = sig;
 
-    if (sig.type === "offer" && sig.link === "in") {
-      // Incoming from previous user
-      if (!pcIn) createIncomingPC();
-      await pcIn.setRemoteDescription(new RTCSessionDescription(sig.sdp));
-      const answer = await pcIn.createAnswer();
-      await pcIn.setLocalDescription(answer);
-      sendSignal({
-        type: "answer",
-        link: "in",
-        to: sig.from,
-        sdp: answer
-      });
-    } else if (sig.type === "answer" && sig.link === "out") {
-      // Answer from next user
-      if (!pcOut) return;
-      await pcOut.setRemoteDescription(new RTCSessionDescription(sig.sdp));
-    } else if (sig.type === "candidate") {
-      if (sig.link === "in" && pcIn) {
-        try { await pcIn.addIceCandidate(sig.candidate); } catch (e) { console.error(e); }
-      } else if (sig.link === "out" && pcOut) {
-        try { await pcOut.addIceCandidate(sig.candidate); } catch (e) { console.error(e); }
+    if (type === "offer") {
+      if (!joined) return;
+      let pc = peers[from];
+      if (!pc) pc = createPeer(from);
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendSignal({ type: "answer", to: from, sdp: answer });
+    } else if (type === "answer") {
+      const pc = peers[from];
+      if (!pc) return;
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    } else if (type === "candidate") {
+      const pc = peers[from];
+      if (!pc || !candidate) return;
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (e) {
+        console.error("addIceCandidate error", e);
       }
     }
   });
 
-  // --- PEER CONNECTIONS ---
-  function createIncomingPC() {
-    pcIn = new RTCPeerConnection(pcConfig);
-    pcIn.ontrack = (event) => {
-      console.log("v5: incoming ontrack");
+  function createPeer(remoteId) {
+    const pc = new RTCPeerConnection(pcConfig);
+    peers[remoteId] = pc;
+
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+    }
+
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendSignal({
+        type: "candidate",
+        to: remoteId,
+        candidate: event.candidate.toJSON()
+      });
+    };
+
+    pc.ontrack = (event) => {
+      let v = remoteVideos[remoteId];
+      if (!v) {
+        v = document.createElement("video");
+        v.autoplay = true;
+        v.playsInline = true;
+        remoteVideos[remoteId] = v;
+        remoteContainer.appendChild(v);
+      }
       const [stream] = event.streams;
-      incomingVideo.srcObject = stream;
-      startMixLoop();
+      v.srcObject = stream;
     };
-    pcIn.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      sendSignal({
-        type: "candidate",
-        link: "in",
-        to: prevId,
-        candidate: event.candidate.toJSON()
-      });
-    };
-  }
 
-  function createOutgoingPC(mixedStream) {
-    pcOut = new RTCPeerConnection(pcConfig);
-    for (const track of mixedStream.getTracks()) {
-      pcOut.addTrack(track, mixedStream);
-    }
-    pcOut.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      sendSignal({
-        type: "candidate",
-        link: "out",
-        to: nextId,
-        candidate: event.candidate.toJSON()
-      });
-    };
-  }
-
-  // --- MIXING LOOP: incoming + local → mixedCanvas → captureStream ---
-  let mixLoopStarted = false;
-  let mixedStream = null;
-
-  function startMixLoop() {
-    if (mixLoopStarted) return;
-    mixLoopStarted = true;
-
-    function draw() {
-      const w = 320;
-      const h = 240;
-      mixedCanvas.width = w;
-      mixedCanvas.height = h;
-
-      mixedCtx.fillStyle = "black";
-      mixedCtx.fillRect(0, 0, w, h);
-
-      // Draw incoming stream if available
-      if (incomingVideo.readyState >= 2) {
-        mixedCtx.drawImage(incomingVideo, 0, 0, w, h);
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
+        if (remoteVideos[remoteId]) {
+          remoteVideos[remoteId].remove();
+          delete remoteVideos[remoteId];
+        }
+        delete peers[remoteId];
       }
+    };
 
-      // Overlay local camera in corner
-      if (localVideo.readyState >= 2) {
-        const lw = w / 4;
-        const lh = h / 4;
-        mixedCtx.drawImage(localVideo, w - lw - 10, h - lh - 10, lw, lh);
-      }
-
-      // Simple label
-      mixedCtx.fillStyle = "rgba(0,255,255,0.8)";
-      mixedCtx.font = "14px Arial";
-      mixedCtx.fillText(userId, 10, 20);
-
-      requestAnimationFrame(draw);
-    }
-
-    requestAnimationFrame(draw);
-
-    // Capture mixed stream for outgoing PC
-    mixedStream = mixedCanvas.captureStream(20);
-    if (nextId) {
-      createOutgoingPC(mixedStream);
-      createAndSendOfferToNext();
-    }
+    return pc;
   }
 
-  async function createAndSendOfferToNext() {
-    if (!pcOut || !nextId) return;
-    const offer = await pcOut.createOffer();
-    await pcOut.setLocalDescription(offer);
-    sendSignal({
-      type: "offer",
-      link: "out",
-      to: nextId,
-      sdp: offer
-    });
-  }
-
-  // --- PUBLIC BUTTONS ---
-  window.startRing = async () => {
-    console.log("v5: startRing");
+  async function startMesh() {
     await initLocalMedia();
-    ringStarted = true;
+    joined = true;
 
-    // If we have a previous user, we expect an offer from them (pcIn created on demand)
-    // If we have a next user, we will send them an offer once mixedStream exists
-    if (!prevId && ringUsers.length > 1) {
-      // If we're the first in sorted order, we bootstrap the ring by sending
-      // a blank incoming stream (just our local) to next.
-      console.log("v5: bootstrapping ring as first user");
-      // No incoming yet, but we can still start mix loop with only local
-      startMixLoop();
+    const activeUsers = users.filter(u => u !== userId);
+    if (users.length > 3) {
+      // Do not start new connections if more than 3 users
+      return;
     }
+
+    for (const remoteId of activeUsers) {
+      if (peers[remoteId]) continue;
+      // simple rule: only the lexicographically smaller id initiates
+      if (userId < remoteId) {
+        const pc = createPeer(remoteId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({ type: "offer", to: remoteId, sdp: offer });
+      }
+    }
+  }
+
+  function leaveCall() {
+    joined = false;
+    Object.values(peers).forEach(pc => pc.close());
+    Object.keys(peers).forEach(k => delete peers[k]);
+    Object.values(remoteVideos).forEach(v => v.remove());
+    Object.keys(remoteVideos).forEach(k => delete remoteVideos[k]);
+  }
+
+  document.getElementById("joinBtn").onclick = () => {
+    startMesh().catch(console.error);
+  };
+  document.getElementById("leaveBtn").onclick = () => {
+    leaveCall();
   };
 
-  window.hangup = () => {
-    console.log("v5: hangup");
-    ringStarted = false;
-    if (pcIn) { pcIn.close(); pcIn = null; }
-    if (pcOut) { pcOut.close(); pcOut = null; }
+  // --- FILE SHARING ---
+  const fileNameInput = document.getElementById("fileName");
+  const fileUrlInput = document.getElementById("fileUrl");
+  const filesList = document.getElementById("filesList");
+
+  document.getElementById("sendFileBtn").onclick = () => {
+    const name = fileNameInput.value.trim();
+    const url = fileUrlInput.value.trim();
+    if (!name && !url) return;
+    const fileRef = push(ref(db, `rooms/${roomId}/files`));
+    set(fileRef, {
+      from: userId,
+      name,
+      url,
+      ts: serverTimestamp()
+    });
+    fileNameInput.value = "";
+    fileUrlInput.value = "";
   };
 
-  // Start local preview immediately
-  initLocalMedia().catch(err => {
-    console.error("v5: getUserMedia failed", err);
+  onChildAdded(ref(db, `rooms/${roomId}/files`), snapshot => {
+    const val = snapshot.val();
+    const li = document.createElement("li");
+    const label = val.name || "(no name)";
+    const text = val.url ? ` – ${val.url}` : "";
+    li.textContent = `${val.from}: ${label}${text}`;
+    filesList.appendChild(li);
   });
+
+  // --- POLLING ---
+  const pollQuestionInput = document.getElementById("pollQuestion");
+  const pollOptionsInput = document.getElementById("pollOptions");
+  const pollsDiv = document.getElementById("polls");
+
+  document.getElementById("createPollBtn").onclick = () => {
+    const q = pollQuestionInput.value.trim();
+    const opts = pollOptionsInput.value.split(",").map(o => o.trim()).filter(Boolean);
+    if (!q || opts.length === 0) return;
+    const pollRef = push(ref(db, `rooms/${roomId}/polls`));
+    set(pollRef, {
+      question: q,
+      options: opts,
+      ts: serverTimestamp()
+    });
+    pollQuestionInput.value = "";
+    pollOptionsInput.value = "";
+  };
+
+  onValue(ref(db, `rooms/${roomId}/polls`), snapshot => {
+    const polls = snapshot.val() || {};
+    pollsDiv.innerHTML = "";
+    Object.entries(polls).forEach(([pollId, poll]) => {
+      const wrapper = document.createElement("div");
+      wrapper.style.borderTop = "1px solid #333";
+      wrapper.style.paddingTop = "6px";
+      const q = document.createElement("div");
+      q.textContent = poll.question;
+      q.style.fontWeight = "bold";
+      wrapper.appendChild(q);
+
+      const opts = poll.options || [];
+      const votes = poll.votes || {};
+      opts.forEach((opt, idx) => {
+        const count = Object.values(votes).filter(v => v === idx).length;
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.style.fontSize = "12px";
+        btn.textContent = `${opt} (${count})`;
+        btn.onclick = () => {
+          const voteRef = ref(db, `rooms/${roomId}/polls/${pollId}/votes/${userId}`);
+          set(voteRef, idx);
+        };
+        wrapper.appendChild(btn);
+      });
+
+      pollsDiv.appendChild(wrapper);
+    });
+  });
+
+  // start local preview
+  initLocalMedia().catch(console.error);
 </script>
 
 </body>
 </html>
-
