@@ -5,15 +5,36 @@
   <title>GeoRun Call Hub</title>
   <style>
     body {
-      background: #111;
-      color: #fff;
-      font-family: Arial, sans-serif;
+      background: #000;
+      color: #0af;
+      font-family: Consolas, monospace;
       text-align: center;
-      padding-top: 80px;
+      padding-top: 120px;
+      overflow: hidden;
     }
+
+    h1 {
+      font-size: 48px;
+      margin-bottom: 10px;
+      color: #09f;
+      text-shadow: 0 0 12px #0af;
+      animation: glow 2s infinite alternate;
+    }
+
+    p {
+      font-size: 20px;
+      color: #8cf;
+      margin-bottom: 40px;
+    }
+
+    @keyframes glow {
+      from { text-shadow: 0 0 8px #0af; }
+      to   { text-shadow: 0 0 20px #0ff; }
+    }
+
     .btn {
       display: inline-block;
-      padding: 15px 30px;
+      padding: 18px 40px;
       margin: 20px;
       background: #0af;
       color: #000;
@@ -21,16 +42,43 @@
       border-radius: 10px;
       cursor: pointer;
       text-decoration: none;
+      transition: 0.2s;
+      box-shadow: 0 0 12px #0af;
+    }
+
+    .btn:hover {
+      background: #09f;
+      box-shadow: 0 0 20px #0ff;
+      transform: scale(1.05);
+    }
+
+    /* Animated background grid */
+    .grid {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: linear-gradient(#022 1px, transparent 1px),
+                  linear-gradient(90deg, #022 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.15;
+      animation: drift 20s linear infinite;
+      z-index: -1;
+    }
+
+    @keyframes drift {
+      from { background-position: 0 0; }
+      to   { background-position: 200px 200px; }
     }
   </style>
 </head>
 <body>
 
+  <div class="grid"></div>
+
   <h1>GeoRun Video System</h1>
-  <p>Choose an action</p>
+  <p>Select an action to begin</p>
 
   <a class="btn" href="call.html">Start Video Call</a>
 
 </body>
-</html>
 
