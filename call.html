@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GeoRun Video Call v3.6</title>
+  <title>GeoRun Video Caller v4</title>
   <style>
     body {
       background: #000;
@@ -51,11 +51,33 @@
         transform: scale(1.08);
       }
     }
+    #users-panel {
+      margin-top: 20px;
+      text-align: left;
+      display: inline-block;
+      background: #111;
+      padding: 10px 15px;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    #users-panel h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+    }
+    #users-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 14px;
+    }
+    #users-list li {
+      margin: 2px 0;
+    }
   </style>
 </head>
 <body>
 
-  <h1>GeoRun Video Caller v3.6</h1>
+  <h1>GeoRun Video Caller v4</h1>
 
   <div id="hvideo-icon">HVIDEA</div>
 
@@ -70,18 +92,22 @@
     <button class="btn" onclick="hangup()">Hang Up</button>
   </div>
 
+  <div id="users-panel">
+    <h3>Connected users</h3>
+    <ul id="users-list"></ul>
+  </div>
+
 <script type="module">
   import { initializeApp } 
     from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-
   import {
-    getDatabase, ref, push, set, onChildAdded, serverTimestamp
+    getDatabase, ref, push, set, onChildAdded, onValue,
+    onDisconnect, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
   // --- URL-BASED ROOM ID ---
   const params = new URLSearchParams(location.search);
   let roomId = params.get("room");
-
   if (!roomId) {
     roomId = "room-" + Math.random().toString(36).slice(2);
     location.search = "?room=" + roomId;
@@ -94,7 +120,7 @@
     sessionStorage.setItem("userId", userId);
   }
 
-  console.log("v3.6: roomId =", roomId, "userId =", userId);
+  console.log("v4: roomId =", roomId, "userId =", userId);
 
   const firebaseConfig = {
     apiKey: "AIzaSyADjsNLnBm2i4_UtcBd34M0QixU75eUxwo",
@@ -113,176 +139,250 @@
   const localVideo = document.getElementById("local");
   const remoteCanvas = document.getElementById("remote");
   const remoteCtx = remoteCanvas.getContext("2d");
+  const usersListEl = document.getElementById("users-list");
 
-  // --- ENCODING: FRAME → KEY_BITS (8,192 chars) ---
-  function encodeFrameToKeyBits(b64Frame) {
-    return b64Frame.slice(0, 8192);
+  // Offscreen video for remote stream → drawn into canvas
+  const remoteVideo = document.createElement("video");
+  remoteVideo.autoplay = true;
+  remoteVideo.playsInline = true;
+
+  // --- WEBRTC CONFIG ---
+  const pcConfig = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" }
+    ]
+  };
+
+  let pc = null;       // video PC
+  let pcAudio = null;  // audio PC
+  let localStream = null;
+  let audioStream = null;
+
+  // --- LOCAL MEDIA ---
+  async function initLocalMedia() {
+    if (localStream) return;
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    localVideo.srcObject = localStream;
   }
 
-  // --- key_bits → HVIDEA-STYLE DRAW CALLS ---
-  function keyBitsToDrawCalls(key_bits, width, height) {
-    const calls = [];
+  async function initAudio() {
+    if (audioStream) return;
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  }
 
-    for (let i = 0; i < key_bits.length; i++) {
-      const kb = key_bits.charCodeAt(i);
+  // --- PEER CONNECTIONS ---
+  function createPeerConnection() {
+    pc = new RTCPeerConnection(pcConfig);
 
-      const wrapped = kb % 255;
-
-      const bin = kb.toString(2);
-      let ones = 0, zeros = 0;
-      for (const bit of bin) {
-        if (bit === '1') ones++;
-        else if (bit === '0') zeros++;
+    if (localStream) {
+      for (const track of localStream.getTracks()) {
+        pc.addTrack(track, localStream);
       }
-      const sumBits = ones + zeros;
-
-      const x = (wrapped * 3 + sumBits * 7) % width;
-      const y = (wrapped * 5 + sumBits * 11) % height;
-
-      const r = (wrapped * sumBits) % 256;
-      const g = (wrapped * 13) % 256;
-      const b = (sumBits * 17) % 256;
-
-      const cmd = `:x${x}y${y}:${r},${g},${b}:`;
-      calls.push(cmd);
     }
 
-    return calls;
+    pc.ontrack = (event) => {
+      console.log("v4: video ontrack", event.streams);
+      const [stream] = event.streams;
+      remoteVideo.srcObject = stream;
+      startRemoteCanvasLoop();
+    };
+
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendSignal({
+        type: "candidate",
+        candidate: event.candidate.toJSON()
+      });
+    };
   }
 
-  // --- RENDER: DRAW CALLS → COLORFUL PIXELATED LINES ON CANVAS ---
-  function renderDrawCallsToCanvas(calls, ctx, width, height) {
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, width, height);
+  function createAudioPeerConnection() {
+    pcAudio = new RTCPeerConnection(pcConfig);
 
-    for (const cmd of calls) {
-      const match = cmd.match(/:x(\d+)y(\d+):(\d+),(\d+),(\d+):/);
-      if (!match) continue;
-
-      const x = parseInt(match[1]);
-      const y = parseInt(match[2]);
-      const r = parseInt(match[3]);
-      const g = parseInt(match[4]);
-      const b = parseInt(match[5]);
-
-      ctx.strokeStyle = `rgb(${r},${g},${b})`;
-      ctx.lineWidth = 2;
-
-      const len = 8 + (r % 16);      // 8–23 px
-      const mode = g % 3;            // 0: horizontal, 1: vertical, 2: diagonal
-
-      ctx.beginPath();
-      if (mode === 0) {
-        const x2 = Math.min(x + len, width);
-        ctx.moveTo(x + 0.5, y + 0.5);
-        ctx.lineTo(x2 + 0.5, y + 0.5);
-      } else if (mode === 1) {
-        const y2 = Math.min(y + len, height);
-        ctx.moveTo(x + 0.5, y + 0.5);
-        ctx.lineTo(x + 0.5, y2 + 0.5);
-      } else {
-        const x2 = Math.min(x + len, width);
-        const y2 = Math.min(y + len, height);
-        ctx.moveTo(x + 0.5, y + 0.5);
-        ctx.lineTo(x2 + 0.5, y2 + 0.5);
+    if (audioStream) {
+      for (const track of audioStream.getTracks()) {
+        pcAudio.addTrack(track, audioStream);
       }
-      ctx.stroke();
     }
 
-    ctx.strokeStyle = "red";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+    pcAudio.ontrack = (event) => {
+      console.log("v4: audio ontrack", event.streams);
+      const [stream] = event.streams;
+      const audioEl = new Audio();
+      audioEl.autoplay = true;
+      audioEl.srcObject = stream;
+    };
+
+    pcAudio.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      sendSignal({
+        type: "candidate-audio",
+        candidate: event.candidate.toJSON()
+      });
+    };
   }
 
-  function reconstructFrameFromKeyBits(key_bits) {
-    const width = remoteCanvas.width;
-    const height = remoteCanvas.height;
-    const calls = keyBitsToDrawCalls(key_bits, width, height);
-    renderDrawCallsToCanvas(calls, remoteCtx, width, height);
-  }
-
-  // --- SENDER PIPELINE ---
-  let keyBitsBuffer = [];
-
-  function startSending() {
-    console.log("v3.6: startSending called");
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-
-    setInterval(() => {
-      if (!localVideo.videoWidth || !localVideo.videoHeight) return;
-
-      canvas.width = localVideo.videoWidth;
-      canvas.height = localVideo.videoHeight;
-      ctx.drawImage(localVideo, 0, 0);
-
-      const jpeg = canvas.toDataURL("image/jpeg", 0.4);
-      const b64 = jpeg.split(",")[1];
-      if (!b64) return;
-
-      const key_bits = encodeFrameToKeyBits(b64);
-      keyBitsBuffer.push(key_bits);
-    }, 200);
-
-    setInterval(() => {
-      if (keyBitsBuffer.length === 0) return;
-
-      const batchRef = push(ref(db, `rooms/${roomId}/cipher_batches`));
-      const payload = {
-        from: userId,
-        key_bits_batch: keyBitsBuffer,
-        ts: serverTimestamp()
-      };
-      console.log("v3.6: sending batch", payload);
-      set(batchRef, payload);
-
-      keyBitsBuffer = [];
-    }, 1000);
-  }
-
-  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-    .then(stream => {
-      localVideo.srcObject = stream;
-      localVideo.onloadedmetadata = () => {
-        console.log("v3.6: camera ready, starting sender");
-        startSending();
-      };
-    })
-    .catch(err => {
-      console.error("v3.6: getUserMedia failed", err);
-    });
-
-  // --- RECEIVER PIPELINE ---
-  onChildAdded(ref(db, `rooms/${roomId}/cipher_batches`), snapshot => {
-    const batch = snapshot.val();
-    if (!batch || batch.from === userId) return;
-
-    console.log("v3.6: received batch", batch);
-
-    for (const key_bits of batch.key_bits_batch) {
-      reconstructFrameFromKeyBits(key_bits);
+  function startRemoteCanvasLoop() {
+    function draw() {
+      if (remoteVideo.readyState >= 2) {
+        const w = remoteVideo.videoWidth || 320;
+        const h = remoteVideo.videoHeight || 240;
+        remoteCanvas.width = w;
+        remoteCanvas.height = h;
+        remoteCtx.drawImage(remoteVideo, 0, 0, w, h);
+      }
+      requestAnimationFrame(draw);
     }
-  });
+    requestAnimationFrame(draw);
+  }
 
-  // --- SIGNALING (CALL / ANSWER / HANGUP) ---
-  function sendSignal(type) {
+  // --- SIGNALING HELPERS ---
+  function sendSignal(payload) {
     const sigRef = push(ref(db, `rooms/${roomId}/signals`));
     set(sigRef, {
       from: userId,
-      type,
-      ts: serverTimestamp()
+      ts: serverTimestamp(),
+      ...payload
     });
   }
 
-  window.startCall = () => sendSignal("call");
-  window.answerCall = () => sendSignal("answer");
-  window.hangup = () => sendSignal("hangup");
+  // --- CALL / ANSWER / HANGUP ---
+  window.startCall = async () => {
+    console.log("v4: startCall");
+    await initLocalMedia();
+    await initAudio();
 
-  onChildAdded(ref(db, `rooms/${roomId}/signals`), snapshot => {
+    createPeerConnection();
+    createAudioPeerConnection();
+
+    const offerVideo = await pc.createOffer();
+    await pc.setLocalDescription(offerVideo);
+
+    const offerAudio = await pcAudio.createOffer();
+    await pcAudio.setLocalDescription(offerAudio);
+
+    sendSignal({
+      type: "call",
+      sdpVideo: offerVideo,
+      sdpAudio: offerAudio
+    });
+  };
+
+  window.answerCall = async () => {
+    console.log("v4: answerCall");
+    await initLocalMedia();
+    await initAudio();
+
+    createPeerConnection();
+    createAudioPeerConnection();
+    // We wait for "call" in the signal listener
+  };
+
+  window.hangup = () => {
+    console.log("v4: hangup");
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+    if (pcAudio) {
+      pcAudio.close();
+      pcAudio = null;
+    }
+  };
+
+  // --- SIGNAL LISTENER ---
+  onChildAdded(ref(db, `rooms/${roomId}/signals`), async (snapshot) => {
     const sig = snapshot.val();
     if (!sig || sig.from === userId) return;
-    console.log("v3.6: signal from other user:", sig.type);
+
+    console.log("v4: signal from other user:", sig.type);
+
+    if (sig.type === "call") {
+      // We are callee
+      if (!pc) {
+        await initLocalMedia();
+        createPeerConnection();
+      }
+      if (!pcAudio) {
+        await initAudio();
+        createAudioPeerConnection();
+      }
+
+      if (sig.sdpVideo) {
+        const remoteDescVideo = new RTCSessionDescription(sig.sdpVideo);
+        await pc.setRemoteDescription(remoteDescVideo);
+        const answerVideo = await pc.createAnswer();
+        await pc.setLocalDescription(answerVideo);
+
+        if (sig.sdpAudio && pcAudio) {
+          const remoteDescAudio = new RTCSessionDescription(sig.sdpAudio);
+          await pcAudio.setRemoteDescription(remoteDescAudio);
+          const answerAudio = await pcAudio.createAnswer();
+          await pcAudio.setLocalDescription(answerAudio);
+
+          sendSignal({
+            type: "answer",
+            sdpVideo: answerVideo,
+            sdpAudio: answerAudio
+          });
+        } else {
+          sendSignal({
+            type: "answer",
+            sdpVideo: answerVideo
+          });
+        }
+      }
+
+    } else if (sig.type === "answer") {
+      // We are caller
+      if (pc && sig.sdpVideo) {
+        const remoteDescVideo = new RTCSessionDescription(sig.sdpVideo);
+        await pc.setRemoteDescription(remoteDescVideo);
+      }
+      if (pcAudio && sig.sdpAudio) {
+        const remoteDescAudio = new RTCSessionDescription(sig.sdpAudio);
+        await pcAudio.setRemoteDescription(remoteDescAudio);
+      }
+
+    } else if (sig.type === "candidate") {
+      if (pc && sig.candidate) {
+        try {
+          await pc.addIceCandidate(sig.candidate);
+        } catch (e) {
+          console.error("v4: addIceCandidate (video) error", e);
+        }
+      }
+    } else if (sig.type === "candidate-audio") {
+      if (pcAudio && sig.candidate) {
+        try {
+          await pcAudio.addIceCandidate(sig.candidate);
+        } catch (e) {
+          console.error("v4: addIceCandidate (audio) error", e);
+        }
+      }
+    }
+  });
+
+  // --- PRESENCE: WHO'S CONNECTED ---
+  const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
+  set(usersRef, {
+    joinedAt: serverTimestamp()
+  });
+  onDisconnect(usersRef).remove();
+
+  onValue(ref(db, `rooms/${roomId}/users`), snapshot => {
+    const users = snapshot.val() || {};
+    usersListEl.innerHTML = "";
+    Object.keys(users).forEach(uid => {
+      const li = document.createElement("li");
+      li.textContent = uid === userId ? `${uid} (you)` : uid;
+      usersListEl.appendChild(li);
+    });
+  });
+
+  // Start local preview immediately
+  initLocalMedia().catch(err => {
+    console.error("v4: getUserMedia (video) failed", err);
   });
 </script>
 
