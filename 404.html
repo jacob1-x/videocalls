@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>404 – PawFlex Lost Signal</title>
+  <style>
+    body {
+      background: #000;
+      color: #0af;
+      font-family: Consolas, monospace;
+      text-align: center;
+      padding: 60px;
+    }
+    h1 {
+      font-size: 48px;
+      margin-bottom: 10px;
+      color: #09f;
+    }
+    #jokeBox {
+      margin: 30px auto;
+      padding: 20px;
+      width: 80%;
+      max-width: 700px;
+      background: rgba(0, 40, 80, 0.4);
+      border: 1px solid #0af;
+      border-radius: 8px;
+      font-size: 20px;
+      line-height: 1.4;
+      color: #8cf;
+      white-space: pre-line;
+    }
+    button {
+      padding: 12px 22px;
+      margin: 10px;
+      background: #0af;
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #09f;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>404: PawFlex Lost the Page</h1>
+  <p>The requested file drifted out of the AXN‑Geo512 buffer.</p>
+
+  <div id="jokeBox">Loading PawFlex diagnostics…</div>
+
+  <button onclick="newJokes()">Another Joke</button>
+  <button onclick="location.href='call.html'">Return to GeoRun Call</button>
+
+  <script>
+    const jokes = [
+      "PFX‑001: PawFlex detected a missing page. It blames the nearest router.",
+      "PFX‑002: Honey sniffed the URL and declared it suspicious.",
+      "PFX‑003: The page attempted to load but tripped over its own packets.",
+      "PFX‑004: PawFlex denies responsibility for this disappearance.",
+      "PFX‑005: JakeTube refused to stream this page out of embarrassment.",
+      "PFX‑006: AXN‑Geo512 buffer slipped into another dimension.",
+      "PFX‑007: Honey sat on the keyboard. Again.",
+      "PFX‑008: The embed tried to escape containment.",
+      "PFX‑009: Your device whispered something weird. PawFlex is investigating.",
+      "PFX‑010: Honey approved this error. Tail wagging confirmed.",
+      "PFX‑011: PawFlex is buffering emotionally. Please stand by.",
+      "PFX‑012: The page is shy and refused to appear.",
+      "PFX‑013: JakeTube is experiencing existential lag.",
+      "PFX‑014: PawFlex detected unauthorized optimism in this request.",
+      "PFX‑015: Honey wagged her tail too hard and knocked the page offline.",
+      "PFX‑016: Dimensional echo detected. Another you clicked this somewhere else.",
+      "PFX‑017: PawFlex refuses to load cursed content.",
+      "PFX‑018: Your scroll wheel vibrated at illegal frequencies.",
+      "PFX‑019: The page is haunted. PawFlex recommends snacks.",
+      "PFX‑020: Honey buried the requested file in the backyard.",
+      "PFX‑021: JakeTube paused because the video got stage fright.",
+      "PFX‑022: PawFlex is ignoring your request out of spite.",
+      "PFX‑023: The embed became sentient and ran away.",
+      "PFX‑024: Honey pressed a button. No one knows which one.",
+      "PFX‑025: PawFlex detected a quantum sneeze in the buffer.",
+      "PFX‑026: The page drifted into the void. It waved goodbye.",
+      "PFX‑027: JakeTube is recalibrating its vibe sensors.",
+      "PFX‑028: Honey has claimed this tab as her territory.",
+      "PFX‑029: PawFlex started calculating pi and got bored at 3.",
+      "PFX‑030: Your device is now 12% more dramatic.",
+      "PFX‑031: The page refused to load due to bad vibes.",
+      "PFX‑032: Honey unplugged the router to fix the universe.",
+      "PFX‑033: PawFlex detected a snack hidden in the cache.",
+      "PFX‑034: JakeTube is buffering because the video is shy.",
+      "PFX‑035: The embed is now in chaos mode. Proceed carefully.",
+      "PFX‑036: Honey is wagging her tail at 120Hz.",
+      "PFX‑037: PawFlex is proud of you for trying anyway.",
+      "PFX‑038: The page is loading. Slowly. Dramatically.",
+      "PFX‑039: JakeTube is experiencing vibe turbulence.",
+      "PFX‑040: PawFlex has entered dramatic mode. Expect delays.",
+      "PFX‑041: Honey has taken control of the UI.",
+      "PFX‑042: The button you pressed does not exist in this timeline.",
+      "PFX‑043: Dimensional sync failed. Try petting Honey.",
+      "PFX‑044: PawFlex is recalibrating the atmosphere around this request.",
+      "PFX‑045: The page attempted to escape the mesh.",
+      "PFX‑046: Honey barked at the URL until it fled.",
+      "PFX‑047: JakeTube is confused by your energy.",
+      "PFX‑048: PawFlex is rebooting the vibes. Please wait.",
+      "PFX‑049: The page is hiding behind the firewall.",
+      "PFX‑050: Honey has entered the chat.",
+      "PFX‑051: PawFlex detected a rogue packet doing cartwheels.",
+      "PFX‑052: The embed is vibrating suspiciously.",
+      "PFX‑053: JakeTube is emotionally unavailable right now.",
+      "PFX‑054: Honey stepped on the power strip. Again.",
+      "PFX‑055: PawFlex refuses to elaborate. Error stands.",
+      "PFX‑056: The page is lost somewhere in the mesh.",
+      "PFX‑057: JakeTube is recalculating reality. This may take a while.",
+      "PFX‑058: Honey sniffed the buffer and growled.",
+      "PFX‑059: PawFlex is quietly judging your click history.",
+      "PFX‑060: The page is experiencing turbulence.",
+      "PFX‑061: JakeTube is having an identity crisis.",
+      "PFX‑062: Honey is wagging too aggressively for stable Wi‑Fi.",
+      "PFX‑063: PawFlex detected a forbidden click sequence.",
+      "PFX‑064: The embed is plotting something.",
+      "PFX‑065: JakeTube is buffering out of pure spite.",
+      "PFX‑066: Honey ate the URL. It was crunchy.",
+      "PFX‑067: PawFlex is rebooting the timeline. Please remain seated.",
+      "PFX‑068: The page fell into a wormhole.",
+      "PFX‑069: JakeTube is confused by your scroll speed.",
+      "PFX‑070: Honey is staring at you judgmentally.",
+      "PFX‑071: PawFlex detected a vibe anomaly.",
+      "PFX‑072: The embed is now haunted. Do not tap the glass.",
+      "PFX‑073: JakeTube is recalibrating its chaos engine.",
+      "PFX‑074: Honey pressed the emergency button. No one knows why.",
+      "PFX‑075: PawFlex is refusing to cooperate with this request.",
+      "PFX‑076: The page is too spicy to load safely.",
+      "PFX‑077: JakeTube is buffering because it can.",
+      "PFX‑078: Honey is wagging at unsafe speeds.",
+      "PFX‑079: PawFlex detected a snack in the firewall.",
+      "PFX‑080: The embed is now self‑aware and slightly offended.",
+      "PFX‑081: JakeTube is experiencing emotional lag.",
+      "PFX‑082: Honey unplugged something important. We’re not sure what.",
+      "PFX‑083: PawFlex is recalibrating your destiny.",
+      "PFX‑084: The page is refusing to participate in this reality.",
+      "PFX‑085: JakeTube is confused by your scroll wheel technique.",
+      "PFX‑086: Honey barked at the buffer until it panicked.",
+      "PFX‑087: PawFlex detected a forbidden vibe pattern.",
+      "PFX‑088: The embed is vibrating ominously.",
+      "PFX‑089: JakeTube is buffering dramatically for effect.",
+      "PFX‑090: Honey pressed a random key. Chaos ensued.",
+      "PFX‑091: PawFlex is ignoring your existence temporarily.",
+      "PFX‑092: The page is lost in the void, humming softly.",
+      "PFX‑093: JakeTube is recalibrating its pixels one by one.",
+      "PFX‑094: Honey is wagging at 240Hz. Monitor may flicker.",
+      "PFX‑095: PawFlex detected a rogue timeline branch.",
+      "PFX‑096: The embed is now chaotic neutral.",
+      "PFX‑097: JakeTube is buffering emotionally and needs a moment.",
+      "PFX‑098: Honey unplugged the universe for maintenance.",
+      "PFX‑099: PawFlex refuses to load this cursed page.",
+      "PFX‑100: The page is hiding from responsibility behind another tab."
+    ];
+
+    function newJokes() {
+      const box = document.getElementById("jokeBox");
+      const count = Math.floor(Math.random() * 4) + 1; // 1–4 jokes
+      let usedIndexes = new Set();
+      let lines = [];
+
+      for (let i = 0; i < count; i++) {
+        let idx;
+        do {
+          idx = Math.floor(Math.random() * jokes.length);
+        } while (usedIndexes.has(idx) && usedIndexes.size < jokes.length);
+        usedIndexes.add(idx);
+        lines.push(jokes[idx]);
+      }
+
+      box.textContent = lines.join("\n\n");
+    }
+
+    newJokes();
+  </script>
+
+</body>
+</html>
